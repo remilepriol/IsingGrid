@@ -1,0 +1,46 @@
+
+\documentclass[12pt]{article}
+\usepackage[francais]{babel} 
+\usepackage[right=2cm,left=2cm,top=1cm,bottom=2cm]{geometry}
+
+\usepackage[latin1]{inputenc}
+\usepackage[T1]{fontenc} 
+\usepackage[francais]{babel} 
+
+
+% See the ``Article customise'' template for come common customisations
+
+\title{Approximate Inference on the Ising model}
+\author{Brahim Khalil Abid, Ilyes Khemakhem, Rémi Le Priol}
+\date{December 2016} % delete this line to display the current date
+
+%%% BEGIN DOCUMENT
+\begin{document}
+
+\maketitle
+
+\section{Description of the project}
+
+We consider a graph model $G=(V,E)$, and a probability distribution from the exponential family factorising on that graph, with density $p(x) = \exp(\theta \cdot \phi(x) - A(\theta))$. In this configuration the canonical parameters $\theta$ and the sufficient statistics $\phi$ are known.
+
+We would like to sample according to this distribution, infer the marginal probabilities, or the mean parameters $\mu = E_p[\phi(x)]$. This problem is easy on trees, but hard in the general case. There is an exact inference algorithm that works for all undirected graphs : the junction tree algorithm. But its computational cost grows exponentially with the size of the maximal clique in the graph. In most cases we can only hope for approximations of these mean parameters. We will describe and implement three methods for that purpose :
+
+\begin{itemize}
+	\item \textbf{Gibbs sampling :} Starting from a given value of the variables, we iteratively sample each node conditionally to its neighbours. This algorithm converges to sample for the mean parameters of the graph (for dense graphs).
+	\item \textbf{Loopy belief, or sum-product algorithm :} This is a variation method on graphs with cycles. To understand how, we introduce the Bethe Variational Problem : we work on pseudomarginals instead of marginals which are positive vectors that satisfy the local marginalization constraints, and we solve an approximate variational problem on $A(\theta)$ by using the expression of $A*(\theta)$ obtained on tree-structured graphs on graphs with cycles. The sum-product algorithms provides the solution for this problem's Lagrangian. However, unlike on trees, the algorithm is not guaranteed to converge on graphs with cycles. 
+	\item \textbf{Mean Field algorithm :} This is again a variational method. We are looking for a lower bound on $A(\theta)$. We simplify our problem by removing edges in the graph, ie adding independence statement, ie removing some sufficient statistics and some parameters. Once we have a tractable graph, either a forest, either the empty graph), we look for the distribution that is the closer from the original one, in terms of KL divergence. This is a simple non-convex optimization problem, which yields an iterative procedure.
+\end{itemize}
+
+\section{Proposed plan}
+
+\begin{itemize}
+	\item Derivation of all 3 algorithms on the Ising model	\item Implementation on a grid-graph.
+	\item Comparison of the 3 methods in terms of speed, complexity, and sensitivity to variables' correlation.	\item Maybe an application to image segmentation or denoising.
+\end{itemize}
+
+
+\end{document}
+
+
+
+

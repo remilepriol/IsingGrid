@@ -1,0 +1,2 @@
+These images were obatined with the value of 'a' written in each file title, and a no change factor 'b=1'
+the images initially had half of their points black.
