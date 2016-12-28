@@ -1,6 +1,8 @@
-variational-intro.pdf
-WaiJor08_FTML.pdf
+*variational-intro.pdf
+*WaiJor08_FTML*.pdf
 Icon*
-.dropbox
-.idea*
-.DS*
+*.dropbox
+*.idea*
+*.DS_*
+*.ipynb_*
+*__pycache__*
