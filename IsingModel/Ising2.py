@@ -2,8 +2,8 @@ import numpy as np
 
 
 def gridmean(grid):
-    x, y = grid.shape()
-    return np.sum(grid) / x / y
+    x, y = np.shape(grid)
+    return np.sum(np.absolute(grid)) / x / y
 
 
 def logistic(z):
@@ -53,9 +53,9 @@ class IsingGrid(object):
         self.horizontal_correlation = np.random.rand(self.height, self.width - 1)
 
     def constant_init(self, linfac, vercor, horcor):
-        self.linear_factor = linfac
-        self.vertical_correlation = vercor
-        self.horizontal_correlation = horcor
+        self.linear_factor += linfac
+        self.vertical_correlation += vercor
+        self.horizontal_correlation += horcor
 
     def random_grid(self, theta):
         """return a well sized grid with portion theta of the pixels set to 1"""
@@ -119,19 +119,20 @@ class IsingGrid(object):
             energylist.append(self.energy(grid))
         return grid, energylist[1:]
 
-    def meanfields(self):
-        """ frrvfe """
-        # what is it supposed to return too? means or bernoulli parameters?
-        self.mean_parameters = self.linear_factor / np.amax(np.absolute(self.linear_factor))
-        mean1 = gridmean(self.mean_parameters)
+    def meanfields(self, grid):
+        """ update the mean_parameters with the mean field algorithm  """
+        # the problem is non convex : different initialisation can return different outputs.
+        # but we observe that different random initializations yields the same results.
+        mean1 = gridmean(grid)
         sum_means_list = [mean1 + 1, mean1]
         epsilon = 1e-5
         countiter = 0
         while abs(sum_means_list[-2] - sum_means_list[-1]) > epsilon and countiter < 100:
             countiter += 1
             # update the means similarly to gibbs sampling
-            self.mean_parameters = logistic(self.linear_factor + self.__sum_neighbors(self.mean_parameters))
-            sum_means_list.append(gridmean(self.mean_parameters))
+            grid = logistic(self.linear_factor + self.__sum_neighbors(grid))
+            sum_means_list.append(gridmean(grid))
+        self.mean_parameters = grid
         return sum_means_list[1:]
 
     def loopybelief(self, max_iter=25):

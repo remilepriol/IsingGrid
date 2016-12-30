@@ -21,7 +21,7 @@ def log_sum_exp(args):
     return largest + np.log(np.sum(np.exp(values - largest)))
 
 
-class IsingGrid(object):
+class IsingSimple(object):
     """ An Ising network on a 2D grid.
         Each node is either 1 either -1
         Two neighboring nodes have energy 0 if they have the same value, and energy a otherwise
@@ -53,13 +53,13 @@ class IsingGrid(object):
         return e1
 
     def mean(self):
-        return np.sum(self.grid)/self.n**2
+        return np.sum(self.grid) / self.n ** 2
 
     def savegrid(self, name):
         """plot the grid"""
         plt.title(name)
-        plt.imshow(self.grid, interpolation="nearest", cmap=plt.get_cmap('Greys'),vmin=-1,vmax=1)
-        #plt.savefig('./images/' + name + '.pdf')
+        plt.imshow(self.grid, interpolation="nearest", cmap=plt.get_cmap('Greys'), vmin=-1, vmax=1)
+        # plt.savefig('./images/' + name + '.pdf')
 
     def crossconvol(self):
         """return the convolution of the grid with a cross,
@@ -100,7 +100,7 @@ class IsingGrid(object):
         return energylist[1:]
 
     def meanfields(self):
-        """update the grid that stores the means in place """
+        """update the grid that stores the means """
         mean1 = self.mean()
         sum_means_list = [mean1 + 1, mean1]
         epsilon = 0.00001
@@ -136,12 +136,10 @@ class IsingGrid(object):
             countiter += 1
             for k, newmessages, oldmessages in \
                     zip(range(4), [(upper, lower), (lower, upper), (righter, lefter), (lefter, righter)]):
-                newmessages[k] = np.array(oldmessages[k + 1] + oldmessages[k + 2] + oldmessages[k + 3])
+                newmessages[k] = oldmessages[k + 1] + oldmessages[k + 2] + oldmessages[k + 3]
                 newmessages[k, :, :, 0] = log_sum_exp(newmessages[k] - self.a * np.array([0, 1]))  # x=1
                 newmessages[k, :, :, 1] = log_sum_exp(newmessages[k] - self.a * np.array([1, 0]))  # x=-1
-
+        # does NOT WORK !!!
         print(messages)
-
-        self.grid = np.product(messages, axis=0)
+        self.grid = np.exp(np.sum(messages, axis=0))
         self.grid /= np.sum(self.grid, axis=-1)
-
