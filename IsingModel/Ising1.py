@@ -1,24 +1,20 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-plt.interactive(False)
-
 
 def logistic(z):
     return 1 / (1 + np.exp(-z))
 
 
-def log_sum_exp(args):
-    '''
-    Compute the log of sum of exp of args intelligently.
+def log_sum_exp(table):
+    """
+    Compute the log of sum of exp along the last column of table intelligently .
 
     log(sum_i exp(x_i)) = x_j + log(sum_i exp(x_i-x_j))
-    '''
-    values = np.asarray(list(args))
-    largest = np.max(values, axis=-1)
-    if largest <= float('-inf'):
-        return float('-inf')
-    return largest + np.log(np.sum(np.exp(values - largest)))
+    """
+    # TODO how to broadcast efficiently along the last column
+    largest = np.amax(table, axis=-1)
+    return largest + np.log(np.sum(np.exp(table - largest[:, :, np.newaxis]), axis=-1))
 
 
 class IsingSimple(object):
@@ -59,6 +55,7 @@ class IsingSimple(object):
         """plot the grid"""
         plt.title(name)
         plt.imshow(self.grid, interpolation="nearest", cmap=plt.get_cmap('Greys'), vmin=-1, vmax=1)
+        plt.show()
         # plt.savefig('./images/' + name + '.pdf')
 
     def crossconvol(self):
@@ -113,9 +110,8 @@ class IsingSimple(object):
         return sum_means_list[1:]
 
     def loopybelief(self, max_iter=25):
-        n = self.n
-        messages = np.zeros(4, n, n, 2)
-        # INGOING log-messages for each node
+        messages = np.zeros([4, self.n, self.n, 2])
+        # IN-GOING log-messages for each node
         # each message has two dimensional : it has a value for 1 and -1 at index 0 and 1 respectively.
         # each node emits 4 messages, one per neighbour:
         # 0 : bottom to top
@@ -128,18 +124,14 @@ class IsingSimple(object):
         righter = messages[:, :, 1:]
         lefter = messages[:, :, :-1]
 
-        countiter = 0
-
-        # stop condition is when we reach max_iter iterations.
+        # we stop when we reach max_iter iterations.
         # Murphy et al. found that in average, max_iter = 15 is sufficient
-        while countiter < max_iter:
-            countiter += 1
-            for k, newmessages, oldmessages in \
+        for _ in range(max_iter):
+            for k, (newmessages, oldmessages) in \
                     zip(range(4), [(upper, lower), (lower, upper), (righter, lefter), (lefter, righter)]):
-                newmessages[k] = oldmessages[k + 1] + oldmessages[k + 2] + oldmessages[k + 3]
+                newmessages[k] = oldmessages[(k + 1) % 4] + oldmessages[(k + 2) % 4] + oldmessages[(k + 3) % 4]
                 newmessages[k, :, :, 0] = log_sum_exp(newmessages[k] - self.a * np.array([0, 1]))  # x=1
                 newmessages[k, :, :, 1] = log_sum_exp(newmessages[k] - self.a * np.array([1, 0]))  # x=-1
-        # does NOT WORK !!!
-        print(messages)
-        self.grid = np.exp(np.sum(messages, axis=0))
-        self.grid /= np.sum(self.grid, axis=-1)
+        probagrid = np.exp(np.sum(messages, axis=0))
+        probagrid = probagrid[:, :, 0] / np.sum(probagrid, axis=-1)
+        self.grid = probagrid
