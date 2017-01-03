@@ -161,7 +161,6 @@ class IsingGrid(object):
         :param max_iter:
         :return:
         """
-        # what is it supposed to return in the first place?
         messages = np.zeros([5, self.height, self.width, 2])
         # INGOING log-messages for each node
         # each message has two dimensional : it has a value for 1 and -1 at index 0 and 1 respectively.
