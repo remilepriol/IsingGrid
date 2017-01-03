@@ -1,7 +1,5 @@
-import numpy as np
-import matplotlib.pyplot as plt
 from util import *
-
+import numpy as np
 
 class IsingSimple(object):
     """
