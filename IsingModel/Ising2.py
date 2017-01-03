@@ -172,10 +172,12 @@ class IsingGrid(object):
         # 4 : log-potentials in each point
         # potentials are stored in an additional channel
         messages[4] = self.__repeat_symmetric(self.linear_factors)
-        # if +1 is observed, set potential for -1 to 0
-        messages[4, :, :, 1] = (1-(self.observations == 1)) * messages[4, :, :, 1]
-        # if -1 is observed, set potential for +1 to 0
-        messages[4, :,:, 0] = (1-(self.observations == -1)) * messages[4, :, :, 1]
+        # if +1 is observed, set potential for -1 to -infinity
+        messages[4, :, :, 1] = (1 - (self.observations == 1)) * messages[4, :, :, 1] + \
+            float('-inf') * (self.observations == 1)
+        # if -1 is observed, set potential for +1 to -infinity
+        messages[4, :, :, 0] = (1 - (self.observations == -1)) * messages[4, :, :, 0] + \
+            float('-inf') * (self.observations == -1)
 
         upper = messages[:, :-1, :]
         lower = messages[:, 1:, :]
