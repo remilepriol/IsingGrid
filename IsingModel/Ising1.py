@@ -1,33 +1,20 @@
 import numpy as np
 import matplotlib.pyplot as plt
-
-
-def logistic(z):
-    return 1 / (1 + np.exp(-z))
-
-
-def log_sum_exp(table):
-    """
-    Compute the log of sum of exp along the last column of table intelligently .
-
-    log(sum_i exp(x_i)) = x_j + log(sum_i exp(x_i-x_j))
-    """
-    # TODO how to broadcast efficiently along the last column
-    largest = np.amax(table, axis=-1)
-    return largest + np.log(np.sum(np.exp(table - largest[:, :, np.newaxis]), axis=-1))
+from util import *
 
 
 class IsingSimple(object):
-    """ An Ising network on a 2D grid.
-        Each node is either 1 either -1
-        Two neighboring nodes have energy 0 if they have the same value, and energy a otherwise
+    """
+    An Ising network on a 2D grid.
+    Each node is either 1 either -1
+    Two neighboring nodes have energy 0 if they have the same value, and energy a otherwise
 
-        Attributes:
-            n : size of the grid
-            grid : contains the value of each spin
-            a : second order factor of the energy
-            b : contains the first order factor of the energy
-        """
+    Attributes:
+        n : size of the grid
+        grid : contains the value of each spin
+        a : second order factor of the energy
+        b : contains the first order factor of the energy
+    """
 
     def __init__(self, n=2, a=2, b=0):
         """Initialize a grid of size n with all nodes at -1"""
@@ -115,8 +102,8 @@ class IsingSimple(object):
         # each message has two dimensional : it has a value for 1 and -1 at index 0 and 1 respectively.
         # each node emits 4 messages, one per neighbour:
         # 0 : bottom to top
-        # 1 : top to bottom
-        # 2 : left to right
+        # 1 : left to right
+        # 2 : top to bottom
         # 3 : right to left
 
         upper = messages[:, :-1, :]
@@ -128,10 +115,18 @@ class IsingSimple(object):
         # Murphy et al. found that in average, max_iter = 15 is sufficient
         for _ in range(max_iter):
             for k, (newmessages, oldmessages) in \
-                    zip(range(4), [(upper, lower), (lower, upper), (righter, lefter), (lefter, righter)]):
-                newmessages[k] = oldmessages[(k + 1) % 4] + oldmessages[(k + 2) % 4] + oldmessages[(k + 3) % 4]
-                newmessages[k, :, :, 0] = log_sum_exp(newmessages[k] - self.a * np.array([0, 1]))  # x=1
-                newmessages[k, :, :, 1] = log_sum_exp(newmessages[k] - self.a * np.array([1, 0]))  # x=-1
-        probagrid = np.exp(np.sum(messages, axis=0))
+                    zip(range(4), [(upper, lower), (righter, lefter), (lower, upper), (lefter, righter)]):
+                # sum of messages coming to the source node, except the one coming from the same direction
+                tmp = oldmessages[(k - 1)] + oldmessages[k] + oldmessages[(k + 1) % 4]
+                newmessages[k] = tmp
+                # x_i=1 in newmessages[k, :, :, 0]
+                tmp = log_sum_exp(newmessages[k] + (self.b + self.a) / 2 * np.array([1, -1]))
+                # x_i=-1 in newmessages[k, :, :, 1]
+                newmessages[k, :, :, 1] = log_sum_exp(newmessages[k] + (self.b - self.a) / 2 * np.array([1, -1]))
+                newmessages[k, :, :, 0] = tmp
+                # normalization of messages to 1
+                newmessages[k] /= np.expand_dims(np.sum(newmessages[k], axis=-1), axis=-1)
+
+        probagrid = np.exp(self.b / 2 * np.array([1, -1]) + np.sum(messages, axis=0))
         probagrid = probagrid[:, :, 0] / np.sum(probagrid, axis=-1)
         self.grid = probagrid

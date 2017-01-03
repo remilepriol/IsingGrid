@@ -1,22 +1,5 @@
 import numpy as np
-
-
-def gridmean(grid):
-    x, y = np.shape(grid)
-    return np.sum(np.absolute(grid)) / x / y
-
-
-def logistic(z):
-    return 1 / (1 + np.exp(-z))
-
-
-def log_sum_exp(table):
-    """
-    Compute the log of sum of exp along the last column of table intelligently .
-    log(sum_i exp(x_i)) = x_max + log(sum_i exp(x_i-x_max))
-    """
-    largest = np.amax(table, axis=-1)
-    return largest + np.log(np.sum(np.exp(table - largest[:, :, np.newaxis]), axis=-1))
+from IsingModel.util import *
 
 
 class IsingGrid(object):
@@ -120,14 +103,13 @@ class IsingGrid(object):
             energylist.append(self.energy(grid))
         return grid, energylist[1:]
 
-    def gibbs_video(self, grid):
+    def gibbs_video(self, grid, time_max=100):
         """starting from grid, performs gibbs sampling and return the whole path taken by the grid"""
         if not self.is_correct(grid):
             return
         enrg = self.energy(grid)
         energylist = [2 * enrg, enrg]
-        time_max = 100
-        video = np.array(time_max, self.height, self.width)
+        video = np.empty([time_max, self.height, self.width])
         for t in range(time_max):
             # mask half of the nodes in a checkerboard pattern
             mask = np.fromfunction(lambda x, y: (x + y) % 2, (self.height, self.width))
@@ -135,9 +117,8 @@ class IsingGrid(object):
             grid = self.__gibbs_update(grid, mask)
             # update the other half
             grid = self.__gibbs_update(grid, 1 - mask)
-            video[t] = grid
+            video[t, :, :] = grid
             energylist.append(self.energy(grid))
-            # TODO how to save a gif??
         return video, energylist[1:]
 
     def meanfields(self, grid):
@@ -156,37 +137,49 @@ class IsingGrid(object):
         self.mean_parameters = grid
         return sum_means_list[1:]
 
+    @staticmethod
+    def __makegood(grid):
+        tmp = np.expand_dims(grid / 2, axis=-1)
+        return np.concatenate((tmp, -1 * tmp), axis=-1)
+
     def loopybelief(self, max_iter=25):
-        # TODO make it work
         # what is it supposed to return in the first place?
-        messages = np.zeros([4, self.height, self.width, 2])
+        messages = np.zeros([5, self.height, self.width, 2])
+        messages[4] = self.__makegood(self.linear_factors)
         # INGOING log-messages for each node
         # each message has two dimensional : it has a value for 1 and -1 at index 0 and 1 respectively.
         # each node emits 4 messages, one per neighbour:
         # 0 : bottom to top
-        # 1 : top to bottom
-        # 2 : left to right
+        # 1 : left to right
+        # 2 : top to bottom
         # 3 : right to left
+        # 4 : log-potentials in each point
 
-        countiter = 0
+        upper = messages[:, :-1, :]
+        lower = messages[:, 1:, :]
+        righter = messages[:, :, 1:]
+        lefter = messages[:, :, :-1]
 
-        # stop condition is when we reach max_iter iterations.
+        correlations = [self.vertical_correlations, self.horizontal_correlations, self.vertical_correlations,
+                        self.horizontal_correlations]
+
+        # we stop when we reach max_iter iterations.
         # Murphy et al. found that in average, max_iter = 15 is sufficient
-        while countiter < max_iter:
-            countiter += 1
-            # first version, not correct, should update more frequently with weights
-            upper = self.vertical_correlations * messages[:, :-1, :]
-            lower = self.vertical_correlations * messages[:, 1:, :]
-            righter = self.horizontal_correlations * messages[:, :, 1:]
-            lefter = self.horizontal_correlations * messages[:, :, :-1]
-            for k, newmessages, oldmessages in \
-                    zip(range(4), [(upper, lower), (lower, upper), (righter, lefter), (lefter, righter)]):
-                newmessages[k] = oldmessages[k + 1] + oldmessages[k + 2] + oldmessages[k + 3]
-                a = 1
-                newmessages[k, :, :, 0] = log_sum_exp(newmessages[k] - a * np.array([0, 1]))  # x=1
-                newmessages[k, :, :, 1] = log_sum_exp(newmessages[k] - a * np.array([1, 0]))  # x=-1
-
-        print(messages)
-
+        for _ in range(max_iter):
+            for k, (newmessages, oldmessages) in \
+                    zip(range(4), [(upper, lower), (righter, lefter), (lower, upper), (lefter, righter)]):
+                # sum of messages coming to the source node, except the one coming from the destination node
+                tmp = oldmessages[(k - 1)] + oldmessages[k] + oldmessages[(k + 1) % 4] + oldmessages[4]
+                newmessages[k] = tmp
+                corr = self.__makegood(correlations[k])
+                # x_i=1 in newmessages[k, :, :, 0]
+                tmp = log_sum_exp(newmessages[k] + corr)
+                # x_i=-1 in newmessages[k, :, :, 1]
+                newmessages[k, :, :, 1] = log_sum_exp(newmessages[k] - corr)
+                newmessages[k, :, :, 0] = tmp
+                # normalization of log-messages to 1
+                # does it even make any sense?
+                newmessages[k] /= np.expand_dims(np.sum(newmessages[k], axis=-1), axis=-1)
         self.mean_parameters = np.exp(np.sum(messages, axis=0))
-        self.mean_parameters /= np.sum(self.mean_parameters, axis=-1)
+        self.mean_parameters = 2*self.mean_parameters[:, :, 0] / np.sum(self.mean_parameters, axis=-1)-1
+
