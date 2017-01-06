@@ -137,32 +137,37 @@ class IsingGrid(object):
         """
         #
         grid = self.observations + (1 - np.absolute(self.observations)) * initial_grid
-        mean1 = gridmean(grid)
-        sum_means_list = [mean1 + 1, mean1]
+        enrg1 = self.energy(grid)
         epsilon = 1e-5
+        means_energy = [enrg1 + 2*epsilon, enrg1]
         countiter = 0
-        while abs(sum_means_list[-2] - sum_means_list[-1]) > epsilon and countiter < max_iter:
+        while abs(means_energy[-2] - means_energy[-1]) > epsilon and countiter < max_iter:
             countiter += 1
             # update the means similarly to gibbs sampling
             grid = 2 * logistic(self.linear_factors + self.__sum_neighbors(grid)) - 1
             grid = self.observations + (1 - np.absolute(self.observations)) * grid
-            sum_means_list.append(gridmean(grid))
+            means_energy.append(self.energy(grid))
         self.mean_parameters = grid
-        return sum_means_list[1:]
+        return means_energy[1:]
 
     @staticmethod
     def __repeat_symmetric(grid):
-        tmp = np.expand_dims(grid / 2, axis=-1)
+        tmp = np.expand_dims(grid, axis=-1)
         return np.concatenate((tmp, - tmp), axis=-1)
 
-    def loopybelief(self, max_iter=25):
+    def __messages2means(self,messages):
+        self.mean_parameters = np.product(messages, axis=0)
+        self.mean_parameters = self.mean_parameters[:, :, 0] / np.sum(self.mean_parameters, axis=-1)
+        self.mean_parameters = 2 * self.mean_parameters - 1
+
+    def loopybelief(self, max_iter=25,damping=0.5):
         """
         update the mean_parameters field with the probability given by the sum product algorithm
         :param max_iter:
-        :return:
+        :return: means_energy: the sequence of mean parameters energy
         """
-        messages = np.zeros([5, self.height, self.width, 2])
-        # INGOING log-messages for each node
+        messages = np.ones([5, self.height, self.width, 2])
+        # INGOING messages for each node
         # each message has two dimensional : it has a value for 1 and -1 at index 0 and 1 respectively.
         # each node emits 4 messages, one per neighbour:
         # 0 : bottom to top
@@ -171,13 +176,10 @@ class IsingGrid(object):
         # 3 : right to left
         # 4 : log-potentials in each point
         # potentials are stored in an additional channel
-        messages[4] = self.__repeat_symmetric(self.linear_factors)
-        # if +1 is observed, set potential for -1 to -infinity
-        messages[4, :, :, 1] = (1 - (self.observations == 1)) * messages[4, :, :, 1] + \
-            float('-inf') * (self.observations == 1)
-        # if -1 is observed, set potential for +1 to -infinity
-        messages[4, :, :, 0] = (1 - (self.observations == -1)) * messages[4, :, :, 0] + \
-            float('-inf') * (self.observations == -1)
+        # if +1 is observed, set potential for -1 to 0
+        messages[4, :, :, 1] = (1 - (self.observations == 1)) * self.linear_factors / 2
+        # if -1 is observed, set potential for +1 to 0
+        messages[4, :, :, 0] = (1 - (self.observations == -1)) * (-self.linear_factors / 2)
 
         upper = messages[:, :-1, :]
         lower = messages[:, 1:, :]
@@ -186,25 +188,35 @@ class IsingGrid(object):
 
         correlations = [self.vertical_correlations, self.horizontal_correlations, self.vertical_correlations,
                         self.horizontal_correlations]
-
+        means_energy = []
         # we stop when we reach max_iter iterations.
         # Murphy et al. found that in average, max_iter = 15 is sufficient
         for _ in range(max_iter):
-            for k, (newmessages, oldmessages) in \
-                    zip(range(4), [(upper, lower), (righter, lefter), (lower, upper), (lefter, righter)]):
+            old_messages = messages.copy()
+            old_upper = old_messages[:, :-1, :]
+            old_lower = old_messages[:, 1:, :]
+            old_righter = old_messages[:, :, 1:]
+            old_lefter = old_messages[:, :, :-1]
+            for k, (newmessages, oldmessages) in zip(range(4),
+                        [(upper, old_lower), (righter, old_lefter), (lower, old_upper), (lefter, old_righter)]):
                 # sum of messages coming to the source node, except the one coming from the destination node
-                tmp = oldmessages[(k - 1)] + oldmessages[k] + oldmessages[(k + 1) % 4] + oldmessages[4]
-                newmessages[k] = tmp
-                corr = self.__repeat_symmetric(correlations[k])
-                # x_i=1 in newmessages[k, :, :, 0]
-                tmp = log_sum_exp(newmessages[k] + corr)
+                newmessages[k] = oldmessages[(k - 1)] * oldmessages[k] * oldmessages[(k + 1) % 4] * oldmessages[4]
+                corr = self.__repeat_symmetric(correlations[k] / 2)
+                # x_i=+1 in newmessages[k, :, :, 0]
+                tmp = np.sum(newmessages[k] * np.exp(corr), axis=-1)
                 # x_i=-1 in newmessages[k, :, :, 1]
-                newmessages[k, :, :, 1] = log_sum_exp(newmessages[k] - corr)
+                newmessages[k, :, :, 1] = np.sum(newmessages[k] * np.exp(- corr), axis=-1)
                 newmessages[k, :, :, 0] = tmp
-                # normalization of log-messages to 1
-                # does it even make any sense?
+                # normalization of messages to 1
                 newmessages[k] /= np.expand_dims(np.sum(newmessages[k], axis=-1), axis=-1)
+            # damping
+            messages[:4] = damping*messages[:4] + (1-damping)*old_messages[:4]
+            upper = messages[:, :-1, :]
+            lower = messages[:, 1:, :]
+            righter = messages[:, :, 1:]
+            lefter = messages[:, :, :-1]
+            self.__messages2means(messages)
+            means_energy.append(self.energy(self.mean_parameters))
+        self.__messages2means(messages)
+        return means_energy
 
-        self.mean_parameters = np.exp(np.sum(messages, axis=0))
-        self.mean_parameters = self.mean_parameters[:, :, 0] / np.sum(self.mean_parameters, axis=-1)
-        self.mean_parameters = 2 * self.mean_parameters - 1
