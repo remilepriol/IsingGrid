@@ -139,7 +139,7 @@ class IsingGrid(object):
         grid = self.observations + (1 - np.absolute(self.observations)) * initial_grid
         enrg1 = self.energy(grid)
         epsilon = 1e-5
-        means_energy = [enrg1 + 2*epsilon, enrg1]
+        means_energy = [enrg1 + 2 * epsilon, enrg1]
         countiter = 0
         while abs(means_energy[-2] - means_energy[-1]) > epsilon and countiter < max_iter:
             countiter += 1
@@ -155,15 +155,16 @@ class IsingGrid(object):
         tmp = np.expand_dims(grid, axis=-1)
         return np.concatenate((tmp, - tmp), axis=-1)
 
-    def __messages2means(self,messages):
+    def __messages2means(self, messages):
         self.mean_parameters = np.product(messages, axis=0)
-        self.mean_parameters = self.mean_parameters[:, :, 0] / np.sum(self.mean_parameters, axis=-1)
+        self.mean_parameters = self.mean_parameters[:, :, 0] / (np.sum(self.mean_parameters, axis=-1) + 1e-10)
         self.mean_parameters = 2 * self.mean_parameters - 1
 
-    def loopybelief(self, max_iter=25,damping=0.5):
+    def loopybelief(self, max_iter=25, damping=0.5):
         """
         update the mean_parameters field with the probability given by the sum product algorithm
         :param max_iter:
+        :param damping: momentum coefficient
         :return: means_energy: the sequence of mean parameters energy
         """
         messages = np.ones([5, self.height, self.width, 2])
@@ -177,14 +178,9 @@ class IsingGrid(object):
         # 4 : log-potentials in each point
         # potentials are stored in an additional channel
         # if +1 is observed, set potential for -1 to 0
-        messages[4, :, :, 1] = (1 - (self.observations == 1)) * self.linear_factors / 2
+        messages[4, :, :, 1] = (1 - (self.observations == 1)) * (-1) * self.linear_factors / 2
         # if -1 is observed, set potential for +1 to 0
-        messages[4, :, :, 0] = (1 - (self.observations == -1)) * (-self.linear_factors / 2)
-
-        upper = messages[:, :-1, :]
-        lower = messages[:, 1:, :]
-        righter = messages[:, :, 1:]
-        lefter = messages[:, :, :-1]
+        messages[4, :, :, 0] = (1 - (self.observations == -1)) * self.linear_factors / 2
 
         correlations = [self.vertical_correlations, self.horizontal_correlations, self.vertical_correlations,
                         self.horizontal_correlations]
@@ -193,12 +189,11 @@ class IsingGrid(object):
         # Murphy et al. found that in average, max_iter = 15 is sufficient
         for _ in range(max_iter):
             old_messages = messages.copy()
-            old_upper = old_messages[:, :-1, :]
-            old_lower = old_messages[:, 1:, :]
-            old_righter = old_messages[:, :, 1:]
-            old_lefter = old_messages[:, :, :-1]
-            for k, (newmessages, oldmessages) in zip(range(4),
-                        [(upper, old_lower), (righter, old_lefter), (lower, old_upper), (lefter, old_righter)]):
+            for k, (newmessages, oldmessages) in zip([0, 2, 1, 3],
+                                                     [(messages[:, :-1, :], old_messages[:, 1:, :]),
+                                                      (messages[:, 1:, :], old_messages[:, :-1, :]),
+                                                      (messages[:, :, 1:], old_messages[:, :, :-1]),
+                                                      (messages[:, :, :-1], old_messages[:, :, 1:])]):
                 # sum of messages coming to the source node, except the one coming from the destination node
                 newmessages[k] = oldmessages[(k - 1)] * oldmessages[k] * oldmessages[(k + 1) % 4] * oldmessages[4]
                 corr = self.__repeat_symmetric(correlations[k] / 2)
@@ -208,15 +203,9 @@ class IsingGrid(object):
                 newmessages[k, :, :, 1] = np.sum(newmessages[k] * np.exp(- corr), axis=-1)
                 newmessages[k, :, :, 0] = tmp
                 # normalization of messages to 1
-                newmessages[k] /= np.expand_dims(np.sum(newmessages[k], axis=-1), axis=-1)
+                newmessages[k] /= (np.expand_dims(np.sum(newmessages[k], axis=-1), axis=-1) + 1e-10)
             # damping
-            messages[:4] = damping*messages[:4] + (1-damping)*old_messages[:4]
-            upper = messages[:, :-1, :]
-            lower = messages[:, 1:, :]
-            righter = messages[:, :, 1:]
-            lefter = messages[:, :, :-1]
+            messages[:4] = damping * messages[:4] + (1 - damping) * old_messages[:4]
             self.__messages2means(messages)
             means_energy.append(self.energy(self.mean_parameters))
-        self.__messages2means(messages)
         return means_energy
-
