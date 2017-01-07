@@ -29,7 +29,7 @@ class IsingGrid(object):
         self.vertical_correlations = np.zeros([height - 1, width])
         self.horizontal_correlations = np.zeros([height, width - 1])
         self.mean_parameters = np.zeros([height, width])
-        self.__canonical_parameters = np.zeros([height, width, 5])
+        self._canonical_parameters = np.zeros([height, width, 5])
 
     def random_init(self):
         self.linear_factors = 2 * np.random.rand(self.height, self.width) - 1
@@ -66,14 +66,14 @@ class IsingGrid(object):
             enrg -= 1 / 2 * np.sum(self.horizontal_correlations * grid[:, 1:] * grid[:, :-1])
             return enrg
 
-    def __set_canonical(self):
-        self.__canonical_parameters[:, :, 0] = self.linear_factors
-        self.__canonical_parameters[:-1, :, 1] = self.vertical_correlations  # with lower neighbor
-        self.__canonical_parameters[1:, :, 2] = self.vertical_correlations  # with upper neighbor
-        self.__canonical_parameters[:, :-1, 3] = self.horizontal_correlations  # with right neighbor
-        self.__canonical_parameters[:, 1:, 4] = self.horizontal_correlations  # with left neighbor
+    def _set_canonical(self):
+        self._canonical_parameters[:, :, 0] = self.linear_factors
+        self._canonical_parameters[:-1, :, 1] = self.vertical_correlations  # with lower neighbor
+        self._canonical_parameters[1:, :, 2] = self.vertical_correlations  # with upper neighbor
+        self._canonical_parameters[:, :-1, 3] = self.horizontal_correlations  # with right neighbor
+        self._canonical_parameters[:, 1:, 4] = self.horizontal_correlations  # with left neighbor
 
-    def __sum_neighbors(self, grid):
+    def _sum_neighbors(self, grid):
         """
         return a new grid with the weighted sum of all neighbors on each point
         """
@@ -82,12 +82,12 @@ class IsingGrid(object):
                 + np.pad(grid[:, 1:] * self.horizontal_correlations, ((0, 0), (0, 1)), mode='constant')
                 + np.pad(grid[:, :-1] * self.horizontal_correlations, ((0, 0), (1, 0)), mode='constant'))
 
-    def __gibbs_update(self, grid, mask):
+    def _gibbs_update(self, grid, mask):
         """
         return a new grid where nodes that are not masked have been re sampled conditionally to their neighbors
         """
         # how to specify type in python 3 annotation
-        probagrid = logistic(self.linear_factors + self.__sum_neighbors(grid))
+        probagrid = logistic(self.linear_factors + self._sum_neighbors(grid))
         return mask * grid + (1 - mask) * (2 * (np.random.rand(self.height, self.width) < probagrid) - 1)
 
     def gibbs_sampling(self, grid):
@@ -103,9 +103,9 @@ class IsingGrid(object):
             # mask half of the nodes in a checkerboard pattern
             mask = np.fromfunction(lambda x, y: (x + y) % 2, (self.height, self.width))
             # update nodes that are not touching each other
-            grid = self.__gibbs_update(grid, mask)
+            grid = self._gibbs_update(grid, mask)
             # update the other half
-            grid = self.__gibbs_update(grid, 1 - mask)
+            grid = self._gibbs_update(grid, 1 - mask)
             energylist.append(self.energy(grid))
         return grid, energylist[1:]
 
@@ -120,9 +120,9 @@ class IsingGrid(object):
             # mask half of the nodes in a checkerboard pattern
             mask = np.fromfunction(lambda x, y: (x + y) % 2, (self.height, self.width))
             # update nodes that are not touching each other
-            grid = self.__gibbs_update(grid, mask)
+            grid = self._gibbs_update(grid, mask)
             # update the other half
-            grid = self.__gibbs_update(grid, 1 - mask)
+            grid = self._gibbs_update(grid, 1 - mask)
             video[t, :, :] = grid
             energylist.append(self.energy(grid))
         return video, energylist[1:]
@@ -144,27 +144,27 @@ class IsingGrid(object):
         while abs(means_energy[-2] - means_energy[-1]) > epsilon and countiter < max_iter:
             countiter += 1
             # update the means similarly to gibbs sampling
-            grid = 2 * logistic(self.linear_factors + self.__sum_neighbors(grid)) - 1
+            grid = 2 * logistic(self.linear_factors + self._sum_neighbors(grid)) - 1
             grid = self.observations + (1 - np.absolute(self.observations)) * grid
             means_energy.append(self.energy(grid))
         self.mean_parameters = grid
         return means_energy[1:]
 
     @staticmethod
-    def __repeat_symmetric(grid):
+    def _repeat_symmetric(grid):
         tmp = np.expand_dims(grid, axis=-1)
         return np.concatenate((tmp, - tmp), axis=-1)
 
-    def __messages2means(self, messages):
+    def _messages2means(self, messages):
         self.mean_parameters = np.product(messages, axis=0)
         self.mean_parameters = self.mean_parameters[:, :, 0] / (np.sum(self.mean_parameters, axis=-1) + 1e-10)
         self.mean_parameters = 2 * self.mean_parameters - 1
 
-    def loopybelief(self, max_iter=25, damping=0.5):
+    def loopybelief(self, max_iter=25, damping=0.5, update_order='cyclic'):
         """
         update the mean_parameters field with the probability given by the sum product algorithm
-        :param max_iter:
-        :param damping: momentum coefficient
+        :param max_iter: maximum number of iteration, should depend on the damping
+        :param damping: momentum coefficient, from 0 to 1
         :return: means_energy: the sequence of mean parameters energy
         """
         messages = np.ones([5, self.height, self.width, 2])
@@ -178,34 +178,41 @@ class IsingGrid(object):
         # 4 : log-potentials in each point
         # potentials are stored in an additional channel
         # if +1 is observed, set potential for -1 to 0
-        messages[4, :, :, 1] = (1 - (self.observations == 1)) * (-1) * self.linear_factors / 2
+        messages[4, :, :, 1] = (1 - (self.observations == 1)) * np.exp(- self.linear_factors / 2)
         # if -1 is observed, set potential for +1 to 0
-        messages[4, :, :, 0] = (1 - (self.observations == -1)) * self.linear_factors / 2
+        messages[4, :, :, 0] = (1 - (self.observations == -1)) * np.exp(self.linear_factors / 2)
 
         correlations = [self.vertical_correlations, self.horizontal_correlations, self.vertical_correlations,
                         self.horizontal_correlations]
-        means_energy = []
         # we stop when we reach max_iter iterations.
         # Murphy et al. found that in average, max_iter = 15 is sufficient
-        for _ in range(max_iter):
-            old_messages = messages.copy()
-            for k, (newmessages, oldmessages) in zip([0, 2, 1, 3],
-                                                     [(messages[:, :-1, :], old_messages[:, 1:, :]),
-                                                      (messages[:, 1:, :], old_messages[:, :-1, :]),
-                                                      (messages[:, :, 1:], old_messages[:, :, :-1]),
-                                                      (messages[:, :, :-1], old_messages[:, :, 1:])]):
-                # sum of messages coming to the source node, except the one coming from the destination node
-                newmessages[k] = oldmessages[(k - 1)] * oldmessages[k] * oldmessages[(k + 1) % 4] * oldmessages[4]
-                corr = self.__repeat_symmetric(correlations[k] / 2)
-                # x_i=+1 in newmessages[k, :, :, 0]
-                tmp = np.sum(newmessages[k] * np.exp(corr), axis=-1)
-                # x_i=-1 in newmessages[k, :, :, 1]
-                newmessages[k, :, :, 1] = np.sum(newmessages[k] * np.exp(- corr), axis=-1)
-                newmessages[k, :, :, 0] = tmp
-                # normalization of messages to 1
-                newmessages[k] /= (np.expand_dims(np.sum(newmessages[k], axis=-1), axis=-1) + 1e-10)
+        video = np.empty([max_iter, self.height, self.width])
+        means_energy = []
+        old_messages = messages.copy()
+        list_new_old = [(messages[:, :-1, :], old_messages[:, 1:, :]),
+                        (messages[:, :, 1:], old_messages[:, :, :-1]),
+                        (messages[:, 1:, :], old_messages[:, :-1, :]),
+                        (messages[:, :, :-1], old_messages[:, :, 1:])]
+        if update_order == 'cyclic':
+            list_update = np.array([0, 1, 2, 3] * (max_iter // 4))
+        else:
+            list_update = np.random.randint(0, 4, max_iter)
+        for count_iter, k in enumerate(list_update):
+            newmessages, oldmessages = list_new_old[k]
+            # sum of messages coming to the source node, except the one coming from the destination node
+            newmessages[k] = oldmessages[(k - 1) % 4] * oldmessages[k] * oldmessages[(k + 1) % 4] * oldmessages[4]
+            corr = self._repeat_symmetric(correlations[k] / 2)
+            # x_i=+1 in newmessages[k, :, :, 0]
+            tmp = np.sum(newmessages[k] * np.exp(corr), axis=-1)
+            # x_i=-1 in newmessages[k, :, :, 1]
+            newmessages[k, :, :, 1] = np.sum(newmessages[k] * np.exp(- corr), axis=-1)
+            newmessages[k, :, :, 0] = tmp
             # damping
-            messages[:4] = damping * messages[:4] + (1 - damping) * old_messages[:4]
-            self.__messages2means(messages)
+            messages[k] = damping * messages[k] + (1 - damping) * old_messages[k]
+            # normalization of messages to 1
+            newmessages[k] /= (np.expand_dims(np.sum(newmessages[k], axis=-1), axis=-1) + 1e-10)
+            old_messages[k] = messages[k].copy()
+            self._messages2means(messages)
             means_energy.append(self.energy(self.mean_parameters))
-        return means_energy
+            video[count_iter] = self.mean_parameters
+        return video, means_energy
